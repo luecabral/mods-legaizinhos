@@ -1,32 +1,18 @@
-# claude-mod-subagentes
+# mods legaizinhos
 
-Mod do Claude Code que abre um painel com cada subagente e tarefa da sessão:
+Mods do Claude Code que eu uso e acho legais de ter. Cada mod é uma pasta independente.
 
-- status (rodando, concluído, parado)
-- modelo usado
-- tokens e custo estimado em US$
-- linhas adicionadas e removidas
-- totais da sessão principal, dos subagentes e das sessões mescladas
-- processos do Gemini CLI iniciados pela sessão
+| Mod | O que faz |
+|---|---|
+| [subagentes](subagentes) | Painel com cada subagente e tarefa da sessão: status, modelo, tokens, custo estimado e linhas alteradas |
 
-Os preços ficam em `hooks/prices.ts` (US$ por milhão de tokens). Ajuste lá se a tabela mudar.
+## Como instalar um mod
 
-## Como instalar
-
-Copie esta pasta para `~/.claude/mods/subagentes`:
+Clone o repositório e copie a pasta do mod que você quiser para `~/.claude/mods`:
 
 ```bash
-git clone https://github.com/luecabral/claude-mod-subagentes ~/.claude/mods/subagentes
+git clone https://github.com/luecabral/mods-legaizinhos
+cp -R mods-legaizinhos/subagentes ~/.claude/mods/subagentes
 ```
 
 Depois recarregue o Claude Code.
-
-## Estrutura
-
-- `.claude-plugin/plugin.json`: manifesto do mod
-- `hooks/register.tsx`: painel e leitura dos eventos
-- `hooks/sessions.ts`: números por sessão
-- `hooks/prices.ts`: tabela de preços
-- `hooks/gemini-cli.ts`: leitura dos eventos do Gemini CLI
-- `types/index.d.ts`: tipos do mod
-- `.claude-plugin/types/`: tipos do Claude Code, gerados pelo app (fora do repositório)
