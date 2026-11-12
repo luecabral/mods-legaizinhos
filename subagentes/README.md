@@ -1,4 +1,7 @@
-# subagentes
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="../assets/subagentes-dark.png">
+  <img src="../assets/subagentes-light.png" alt="subagentes: painel com cada subagente e tarefa da sessão" width="100%">
+</picture>
 
 Mod do Claude Code que abre um painel com cada subagente e tarefa da sessão:
 

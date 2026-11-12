@@ -1,6 +1,7 @@
-# mods legaizinhos
-
-Mods do Claude Code que eu uso e acho legais de ter. Cada mod é uma pasta independente.
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
+  <img src="assets/banner-light.png" alt="mods legaizinhos: mods do Claude Code que eu uso e acho legais de ter" width="100%">
+</picture>
 
 | Mod | O que faz |
 |---|---|
