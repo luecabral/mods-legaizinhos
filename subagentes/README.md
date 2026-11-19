@@ -1,7 +1,6 @@
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="../assets/subagentes-dark.png">
-  <img src="../assets/subagentes-light.png" alt="Painel da sessão: limites, PRs, sessão principal, subagentes e custo" width="100%">
-</picture>
+<p align="center">
+  <img src="../assets/subagentes.png" alt="Painel da sessão: limites, PRs, sessão principal, subagentes e custo" width="320">
+</p>
 
 Mod do Claude Code que abre o **Painel da sessão** na lateral, no mesmo visual do painel nativo do app. De cima pra baixo:
 
