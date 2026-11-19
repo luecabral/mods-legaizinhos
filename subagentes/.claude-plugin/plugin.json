@@ -1,6 +1,6 @@
 {
   "name": "subagentes",
   "version": "0.1.0",
-  "description": "Painel que acompanha cada subagente: status, modelo, tokens, custo estimado e linhas alteradas",
+  "description": "Painel da sessão: limites do Claude, PRs, sessão principal, subagentes e custo",
   "types": "./types/index.d.ts"
 }

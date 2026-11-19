@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { bar, barColor, withMerged, costOf, diffOf, effortLabel, limitLabel, mainFromLedger, resetText, thousands, geminiCall, mergeFlow, parseFlow, parseStatus, etimeSeconds, isWrapper, recentTasks, stateOf, titleOf } from './register'
+import { awayPrompt, parsePr, prStatus, prUrls, prTransitions, reflogBranches, parseNumstat, parseWc, bar, toolLabel, taskNotice, endBg, pruneBg, reapBg, shellAlive, BG_SILENT_MS, barColor, withMerged, costOf, diffOf, effortLabel, limitLabel, mainFromLedger, resetText, thousands, geminiCall, mergeFlow, parseFlow, parseStatus, etimeSeconds, isWrapper, recentTasks, stateOf, titleOf } from './register'
 import type { Run } from '../types'
 
 const run = (over: Partial<Run> = {}): Run => ({
@@ -182,4 +182,95 @@ test('mescladas: o guardado continua e o que acabou de mesclar entra', async () 
   const out = withMerged({ k1: { id: 'k1', title: 'A', usd: 1, tokens: 10 } }, [kid, { ...kid, id: 'k3', merged: false }])
   expect(Object.keys(out)).toEqual(['k1', 'k2'])
   expect(out.k2).toEqual({ id: 'k2', title: 'B', usd: 2, tokens: 20 })
+})
+
+test('o que a principal faz, em português', async () => {
+  expect(toolLabel('Bash', { command: 'python3 scripts/x.py\necho ok' })).toBe('Executando python3 scripts/x.py')
+  expect(toolLabel('Read', { file_path: '/a/b/c.rb' })).toBe('Lendo c.rb')
+  expect(toolLabel('mcp__srv__list_issues', {})).toBe('Usando list_issues')
+})
+
+test('segundo plano: notificação fecha a tarefa e o que acabou há 12 h some', async () => {
+  expect(taskNotice('<task-notification><task-id>b1</task-id><status>failed</status></task-notification>')).toEqual({ id: 'b1', status: 'failed' })
+  expect(taskNotice('oi')).toBeUndefined()
+  const bg = { b1: { id: 'b1', label: 'x', at: 0 } }
+  const ended = endBg(bg, 'b1', 10, 'completed')
+  expect(ended.b1?.endedAt).toBe(10)
+  expect(endBg(ended, 'b1', 99, 'failed').b1?.status).toBe('completed')
+  expect(pruneBg(ended, 13 * 60 * 60 * 1000)).toEqual({})
+})
+
+test('segundo plano: tarefa de shell cujo processo morreu sai de rodando', async () => {
+  const cmd = 'until ! pgrep -f "bin/rspec spec/x" >/dev/null; do sleep 5; done'
+  expect(shellAlive(cmd, `/bin/zsh -c ${cmd}\nruby bin/rails s`)).toBe(true)
+  expect(shellAlive(cmd, 'ruby puma 3011')).toBe(false)
+  const bg = { a: { id: 'a', label: 'x', at: 0, command: cmd } }
+  expect(reapBg(bg, 60_000, 'ruby puma 3011').a?.endedAt).toBe(60_000)
+  expect(reapBg(bg, 60_000, 'ruby puma 3011').a?.status).toBe('completed')
+  // ainda vivo: fica
+  expect(reapBg(bg, 60_000, `zsh -c ${cmd}`)).toBe(bg)
+  // recém-criada: o ps pode ainda não ter visto
+  expect(reapBg(bg, 5_000, 'nada')).toBe(bg)
+  // ps falhou: não decide por processo
+  expect(reapBg(bg, 60_000, undefined)).toBe(bg)
+})
+
+test('segundo plano: sem comando, só o tempo sem confirmação fecha', async () => {
+  const bg = { m: { id: 'm', label: 'monitor', at: 0 } }
+  expect(reapBg(bg, BG_SILENT_MS - 1, 'x')).toBe(bg)
+  expect(reapBg(bg, BG_SILENT_MS + 1, 'x').m?.endedAt).toBe(BG_SILENT_MS + 1)
+  // confirmada pelo motor há pouco: fica
+  const seen = { m: { id: 'm', label: 'monitor', at: 0, seenAt: BG_SILENT_MS } }
+  expect(reapBg(seen, BG_SILENT_MS + 60_000, 'x')).toBe(seen)
+})
+
+test('lê o PR do gh e resume os checks como o app', () => {
+  const pr = parsePr(JSON.stringify({
+    number: 176, title: 'fix: botão', url: 'https://github.com/o/r/pull/176', additions: 51, deletions: 10,
+    isDraft: true, state: 'OPEN',
+    statusCheckRollup: [{ conclusion: 'FAILURE' }, { conclusion: 'SUCCESS' }, { status: 'IN_PROGRESS', conclusion: '' }],
+  }))
+  expect(pr).toMatchObject({ number: 176, added: 51, removed: 10, draft: true, failing: 1, pending: 1 })
+  expect(prStatus(pr!)!.text).toBe('1 falhando')
+  expect(pr).toMatchObject({ passed: 1, total: 3, repo: 'r' })
+  expect(prStatus({ ...pr!, failing: 0 })).toMatchObject({ text: '1/3', dot: 'subtle' })
+  expect(prStatus({ ...pr!, failing: 0, pending: 0, passed: 3 })).toMatchObject({ text: '3/3', dot: 'success' })
+  expect(prStatus({ ...pr!, failing: 0, pending: 0, total: 0 })).toBeUndefined()
+  expect(prStatus({ ...pr!, state: 'MERGED' })).toBeUndefined()
+  expect(parsePr('no pull requests found')).toBeNull()
+})
+
+test('acha a URL do PR na saída do gh pr create', () => {
+  expect(prUrls('Creating pull request...\nhttps://github.com/o/r/pull/180\n')).toEqual(['https://github.com/o/r/pull/180'])
+  expect(prUrls('nada aqui')).toEqual([])
+})
+
+test('avisa só o PR que saiu de aberto para mergeado ou fechado', () => {
+  const pr = parsePr(JSON.stringify({ number: 1, title: 't', url: 'u1', state: 'OPEN' }))!
+  const before = { u1: pr, u2: { ...pr, number: 2, url: 'u2', state: 'MERGED' } }
+  const after = { u1: { ...pr, state: 'MERGED' }, u2: before.u2 }
+  expect(prTransitions(before, after).map(p => p.number)).toEqual([1])
+  expect(prTransitions(after, after)).toEqual([])
+})
+
+test('acha as branches por onde a sessão passou no reflog', () => {
+  const log = [
+    'HEAD@{2000}\tcheckout: moving from claude/a-7f63fa to claude/b',
+    'HEAD@{1990}\tcommit: x',
+    'HEAD@{1500}\tcheckout: moving from main to 9f6b0eafce4b',
+    'HEAD@{100}\tcheckout: moving from velha to main',
+  ].join('\n')
+  expect(reflogBranches(log, 1_900_000).sort()).toEqual(['claude/a-7f63fa', 'claude/b'])
+})
+
+test('soma o diff da branch como o app: numstat mais arquivos novos', () => {
+  expect(parseNumstat('8\t0\ta.rb\n2\t1\tb.rb\n-\t-\timg.png\n')).toEqual({ added: 10, removed: 1 })
+  expect(parseWc('      12 novo.rb\n')).toBe(12)
+  expect(parseWc('  3 a\n  4 b\n  7 total\n')).toBe(7)
+})
+
+test('o botão Longe do computador pede as duas ferramentas certas', () => {
+  expect(awayPrompt(true)).toContain('set_remote_control')
+  expect(awayPrompt(true)).toContain('request_keep_awake')
+  expect(awayPrompt(false)).toContain('enabled false')
 })

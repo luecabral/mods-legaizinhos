@@ -78,8 +78,79 @@ export type Launch = {
   task?: string
 }
 
+/** Uma tarefa em segundo plano desta sessão (Bash em segundo plano, Monitor). */
+export type Bg = {
+  id: string
+  label: string
+  at: number
+  endedAt?: number
+  /** comando do shell, para conferir no ps se ainda roda */
+  command?: string
+  /** última vez que o motor confirmou que rodava */
+  seenAt?: number
+  /** completed, failed, killed ou stopped */
+  status?: string
+}
+
+/** O que a sessão principal está fazendo agora. */
+export type Activity = {
+  /** quando começou o turno em andamento; vazio quando ela espera você */
+  turnAt?: number
+  /** ferramenta que a principal está rodando agora */
+  tool?: { label: string; at: number }
+  bg: Record<string, Bg>
+}
+
+/** O PR aberto da branch da sessão, lido pelo gh. */
+export type Pr = {
+  number: number
+  title: string
+  url: string
+  added: number
+  removed: number
+  draft: boolean
+  /** OPEN, MERGED ou CLOSED */
+  state: string
+  failing: number
+  pending: number
+  /** checks que passaram (sucesso, neutro ou pulado) e o total */
+  passed: number
+  total: number
+  /** branch do PR (headRefName) */
+  branch?: string
+  /** nome do repositório, como o app mostra antes do número */
+  repo: string
+  /** quando o painel viu o PR pela primeira vez */
+  seenAt?: number
+}
+
+/** A branch atual, para o botão Criar PR. */
+export type BranchInfo = {
+  name: string
+  /** sem PR, fora da branch padrão e com commits ou arquivos alterados */
+  canCreate: boolean
+  /** a branch já tem PR (aberto ou mergeado) */
+  hasPr: boolean
+  /** nome do repositório (origin) */
+  repo: string
+  /** linhas +/− da branch contra a base: commits, arquivos alterados e novos */
+  added: number
+  removed: number
+}
+
 declare module 'claude-code' {
   interface PluginState {
-    subagentes: { runs: Shaped<Record<string, Run>>; merged: Shaped<Record<string, Merged>>; launches: Shaped<Launch[]> }
+    subagentes: {
+      runs: Shaped<Record<string, Run>>
+      merged: Shaped<Record<string, Merged>>
+      launches: Shaped<Launch[]>
+      activity: Shaped<Activity>
+      prs: Shaped<Record<string, Pr>>
+      branch: Shaped<BranchInfo | null>
+      /** URL do PR com o menu ⋯ aberto */
+      menu: Shaped<string | null>
+      /** o botão do fim do painel pediu controle remoto e computador acordado */
+      away: Shaped<boolean>
+    }
   }
 }

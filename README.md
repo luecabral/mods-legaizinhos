@@ -5,7 +5,7 @@
 
 | Mod | O que faz |
 |---|---|
-| [subagentes](subagentes) | Painel com cada subagente e tarefa da sessão: status, modelo, tokens, custo estimado e linhas alteradas |
+| [subagentes](subagentes) | Painel da sessão: limites do Claude, diff e PRs com botões, sessão principal, subagentes, custo e um botão pra controle remoto e computador acordado |
 
 ## Como instalar um mod
 

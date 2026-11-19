@@ -1,16 +1,21 @@
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="../assets/subagentes-dark.png">
-  <img src="../assets/subagentes-light.png" alt="subagentes: painel com cada subagente e tarefa da sessão" width="100%">
+  <img src="../assets/subagentes-light.png" alt="Painel da sessão: limites, PRs, sessão principal, subagentes e custo" width="100%">
 </picture>
 
-Mod do Claude Code que abre um painel com cada subagente e tarefa da sessão:
+Mod do Claude Code que abre o **Painel da sessão** na lateral, no mesmo visual do painel nativo do app. De cima pra baixo:
 
-- status (rodando, concluído, parado)
-- modelo usado
-- tokens e custo estimado em US$
-- linhas adicionadas e removidas
-- totais da sessão principal, dos subagentes e das sessões mescladas
-- processos do Gemini CLI iniciados pela sessão
+- **Limites do Claude:** uso do limite da sessão (5 h) e do semanal, com barrinha e horário de reinício
+- **Alterações:** diff da branch contra a base (commits, arquivos alterados e novos) e todos os PRs por onde a sessão passou, com repo, número, `+/−`, checks ("● 3/6" ou "1 falhando") e ícone por estado (aberto, rascunho, mergeado, fechado)
+  - botões **Criar PR**, **Marcar como pronto** e **Corrigir CI**, e um menu ⋯ com abrir no GitHub, voltar pra rascunho, revisar o PR e copiar o link
+  - aviso e notificação do sistema quando um PR é mergeado ou fechado
+- **Sessão principal:** modelo, esforço, há quanto tempo está aberta e o que está fazendo agora
+- **Subagentes e tarefas:** cada subagente, tarefa em segundo plano e execução do Gemini CLI, com status, tempo, modelo, tokens e custo
+- **Sessões aninhadas:** as sessões que esta abriu, separadas até você mesclar
+- **Custo desta sessão:** total, principal, subagentes, Gemini e mescladas, em US$ e tokens
+- **Longe do computador:** um botão que pede pra sessão ligar o controle remoto e manter o computador acordado enquanto ela trabalha
+
+Abre com `/painel` (ou `/subagentes`, o nome antigo). Os PRs vêm do `gh` e do `git` da pasta da sessão, então precisa do [GitHub CLI](https://cli.github.com) logado.
 
 Os preços ficam em `hooks/prices.ts` (US$ por milhão de tokens). Ajuste lá se a tabela mudar.
 
@@ -28,7 +33,7 @@ Depois recarregue o Claude Code.
 ## Estrutura
 
 - `.claude-plugin/plugin.json`: manifesto do mod
-- `hooks/register.tsx`: painel e leitura dos eventos
+- `hooks/register.tsx`: painel, PRs e leitura dos eventos
 - `hooks/sessions.ts`: números por sessão
 - `hooks/prices.ts`: tabela de preços
 - `hooks/gemini-cli.ts`: leitura dos eventos do Gemini CLI
