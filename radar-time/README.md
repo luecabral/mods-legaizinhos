@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="../assets/radar-time.png" alt="Radar do time: PRs e cards de cada pessoa do time, com tamanho e complexidade" width="320">
+</p>
+
 # Radar do time
 
 Mostra, em linguagem simples, o que o seu time de produto está fazendo: os PRs de cada pessoa nos repositórios da sua org do GitHub (resumidos para quem não é técnico, com tamanho, complexidade e cuidado) e, se você quiser, os cards do Linear em andamento, agrupados por projeto e com o progresso de cada um. Avisa quando sai PR novo ou quando um PR vai para o ar.
