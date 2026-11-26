@@ -1,0 +1,6 @@
+{
+  "name": "radar-time",
+  "version": "0.1.0",
+  "description": "Mostra em linguagem simples o que o seu time está fazendo no GitHub e no Linear, e avisa quando sai PR novo. Você configura a org e o time no próprio painel.",
+  "types": "./types/index.d.ts"
+}

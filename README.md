@@ -6,6 +6,7 @@
 | Mod | O que faz |
 |---|---|
 | [subagentes](subagentes) | Painel da sessão: limites do Claude, diff e PRs com botões, sessão principal, subagentes e fluxos de trabalho, custo e um botão pra controle remoto e computador acordado |
+| [radar-time](radar-time) | Radar do time: o que cada pessoa está fazendo no GitHub (e no Linear, se quiser) em linguagem simples, com PRs, tamanho, complexidade e avisos de PR novo. Funciona com qualquer org: você monta os times no próprio painel (`/radar`) |
 
 ## Como instalar um mod
 
@@ -17,3 +18,5 @@ cp -R mods-legaizinhos/subagentes ~/.claude/mods/subagentes
 ```
 
 Depois recarregue o Claude Code.
+
+Para o `radar-time` é a mesma coisa: `cp -R mods-legaizinhos/radar-time ~/.claude/mods/radar-time`. Precisa do [GitHub CLI](https://cli.github.com) logado.
