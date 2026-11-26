@@ -30,10 +30,28 @@ export type Run = {
   /** caminho (relativo ao projeto) do arquivo de eventos .jsonl do Gemini */
   flowPath?: string
   actions?: number
+  /** runId do fluxo de trabalho (Workflow) que começou este agente */
+  flow?: string
+  /** último sinal de vida (passo do modelo ou ferramenta) */
+  activeAt?: number
   lastAction?: string
   lastActionAt?: number
   /** última vez que o Gemini deu sinal (arquivo de eventos ou log mexido) */
   activityAt?: number
+}
+
+/** Um fluxo de trabalho (ferramenta Workflow) desta sessão, como o card do app. */
+export type WfRun = {
+  runId: string
+  name: string
+  /** id da tarefa em segundo plano, que a notificação de fim traz */
+  taskId?: string
+  startedAt: number
+  /** último sinal: chamada da ferramenta, retomada ou agente novo */
+  activeAt?: number
+  endedAt?: number
+  /** como acabou: completed, failed ou killed */
+  status?: string
 }
 
 /** O que cada sessão publica no $.store para a sessão mãe ler. */
@@ -151,6 +169,9 @@ declare module 'claude-code' {
       menu: Shaped<string | null>
       /** o botão do fim do painel pediu controle remoto e computador acordado */
       away: Shaped<boolean>
+      flows: Shaped<Record<string, WfRun>>
+      /** fluxos que a pessoa abriu ou fechou à mão (runId -> aberto) */
+      openFlows: Shaped<Record<string, boolean>>
     }
   }
 }

@@ -10,6 +10,7 @@ Mod do Claude Code que abre o **Painel da sessão** na lateral, no mesmo visual 
   - aviso e notificação do sistema quando um PR é mergeado ou fechado
 - **Sessão principal:** modelo, esforço, há quanto tempo está aberta e o que está fazendo agora
 - **Subagentes e tarefas:** cada subagente, tarefa em segundo plano e execução do Gemini CLI, com status, tempo, modelo, tokens e custo
+  - cada fluxo de trabalho (ferramenta Workflow) vira um card, como no app: nome, tempo, número de agentes, uma bolinha por agente e a lista dos agentes, que abre e fecha com um clique
 - **Sessões aninhadas:** as sessões que esta abriu, separadas até você mesclar
 - **Custo desta sessão:** total, principal, subagentes, Gemini e mescladas, em US$ e tokens
 - **Longe do computador:** um botão que pede pra sessão ligar o controle remoto e manter o computador acordado enquanto ela trabalha

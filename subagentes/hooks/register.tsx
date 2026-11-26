@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { AgentInfo, EngineInterface, Register, Timer } from 'claude-code'
 
-import type { Activity, Bg, BranchInfo, Kid, Launch, Merged, Pr, Run, Tokens } from '../types'
+import type { WfRun, Activity, Bg, BranchInfo, Kid, Launch, Merged, Pr, Run, Tokens } from '../types'
 import { priceOf } from './prices'
 import { scanGeminiCli } from './gemini-cli'
 import { isNested, kidsLive, publishSelf, pruneStore, sessionKids } from './sessions'
@@ -29,6 +29,42 @@ export const awayPrompt = (on: boolean) =>
   on
     ? 'liga o controle remoto desta sessão (mcp__ccd_session_mgmt__set_remote_control com session_id "self" e enabled true) e mantém o computador acordado enquanto ela trabalha (mcp__ccd_host__request_keep_awake com until "session_idle"). só isso, sem mexer em mais nada'
     : 'desliga o controle remoto desta sessão (mcp__ccd_session_mgmt__set_remote_control com session_id "self" e enabled false). só isso, sem mexer em mais nada'
+
+/** Fluxos de trabalho (Workflow) desta sessão, pelo runId. */
+const flowsState = atom({ plugin: 'subagentes', key: 'flows' } as const, {} as Record<string, WfRun>, { shape: 'flows-1' })
+const openFlowsState = atom({ plugin: 'subagentes', key: 'openFlows' } as const, {} as Record<string, boolean>, { shape: 'open-flows-1' })
+
+/** Nome do fluxo: o meta.name do script, o nome do fluxo salvo ou o arquivo do script. */
+export const flowName = (input: { script?: string; name?: string; scriptPath?: string }) =>
+  input.script?.match(/meta\s*=\s*\{[\s\S]*?\bname\s*:\s*['"`]([^'"`]+)['"`]/)?.[1] ||
+  input.name ||
+  input.scriptPath?.split('/').pop()?.replace(/\.[^.]+$/, '') ||
+  'fluxo de trabalho'
+
+/** Estado do fluxo pelo dos agentes dele e pelo aviso de fim da tarefa. */
+export const flowState = (flow: WfRun, agents: GeminiState[], lastEnd: number, now: number): GeminiState => {
+  if (flow.status === 'failed' || flow.status === 'killed') return 'failed'
+  if (flow.endedAt !== undefined) return 'completed'
+  if (agents.some(a => a === 'running')) return 'running'
+  // Sem o aviso de fim: entre uma fase e outra fica rodando; parado há muito tempo, acabou.
+  return now - lastEnd > FLOW_QUIET_MS ? 'completed' : 'running'
+}
+export const FLOW_QUIET_MS = 15 * 60 * 1000
+
+/**
+ * Agente de fluxo: o motor não o põe em $.agent.list(), então não dá pra usar a lista.
+ * Acaba com o turn.complete dele, com o fim do fluxo ou depois de 15 min sem sinal.
+ */
+export const flowAgentState = (r: Run, f: WfRun | undefined, now: number): GeminiState =>
+  r.endedAt !== undefined || f?.endedAt !== undefined || now - (r.activeAt ?? r.startedAt) > FLOW_QUIET_MS ? 'completed' : 'running'
+
+/** Os agentes de um fluxo, o estado de cada um, o do fluxo e o último sinal. */
+export const flowSnapshot = (f: WfRun, all: Run[], now: number) => {
+  const agents = all.filter(r => r.flow === f.runId).sort((a, b) => a.startedAt - b.startedAt)
+  const states = agents.map(r => flowAgentState(r, f, now))
+  const lastEnd = Math.max(f.activeAt ?? f.startedAt, f.startedAt, ...agents.map(r => r.endedAt ?? r.activeAt ?? r.startedAt))
+  return { agents, states, lastEnd, state: flowState(f, states, lastEnd, now) }
+}
 
 const menuState = atom({ plugin: 'subagentes', key: 'menu' } as const, null as string | null, { shape: 'menu-1' })
 const branchState = atom({ plugin: 'subagentes', key: 'branch' } as const, null as BranchInfo | null, { shape: 'branch-2' })
@@ -743,7 +779,7 @@ export const mainFromLedger = (ledger: number | undefined, subsUsd: number) =>
   ledger === undefined ? undefined : Math.max(0, ledger - subsUsd)
 
 
-type Item = { kind: 'dev' | 'sub' | 'bg'; run: Run; state: GeminiState }
+type Item = { kind: 'dev' | 'sub' | 'bg' | 'flow'; run: Run; state: GeminiState; flow?: WfRun; agents?: Item[] }
 
 /** O subagente de Claude que só despacha o Gemini já é a tarefa do Gemini: não vira card à parte. */
 export const isWrapper = (r: Run) => r.type === 'gemini-dev' || /^(run )?gemini\b/i.test(r.description)
@@ -817,7 +853,13 @@ const startTicker = ($: EngineInterface) => {
         let all = await read($, runs)
         // Subagente que o motor já não lista: fecha, para o ticker não ficar vivo por causa dele.
         const listed = new Set((await $.agent.list()).map(a => a.id))
-        const orphan = Object.values(all).filter(r => !r.external && r.id !== MAIN && r.endedAt === undefined && !listed.has(r.id) && now - r.startedAt > 60_000)
+        const flows = await read($, flowsState)
+        // Agente de fluxo não entra na lista do motor: fecha pelas regras do fluxo.
+        const orphan = Object.values(all).filter(r =>
+          r.flow
+            ? r.endedAt === undefined && flowAgentState(r, flows[r.flow], now) === 'completed'
+            : !r.external && r.id !== MAIN && r.endedAt === undefined && !listed.has(r.id) && now - r.startedAt > 60_000,
+        )
         if (orphan.length) {
           await update($, runs, a => Object.fromEntries(Object.entries(a).map(([k, r]) => [k, orphan.some(o => o.id === k) && r.endedAt === undefined ? { ...r, endedAt: now } : r])))
           all = await read($, runs)
@@ -825,7 +867,8 @@ const startTicker = ($: EngineInterface) => {
         const subs =Object.values(all).some(r => !r.external && r.id !== MAIN && r.endedAt === undefined)
         const act = await read($, activity)
         const busy = act.turnAt !== undefined || Object.values(act.bg).some(b => b.endedAt === undefined)
-        const live = subs || busy || kidsLive() || (await allGemini($, now, await read($, launches))).some(g => g.state === 'running')
+        const flowLive = Object.values(flows).some(f => flowSnapshot(f, Object.values(all), now).state === 'running')
+        const live = subs || busy || flowLive || kidsLive() || (await allGemini($, now, await read($, launches))).some(g => g.state === 'running')
         await reapActivity($, now)
         await foldMerged($)
         await refreshPr($)
@@ -881,8 +924,16 @@ export const register: Register = on => {
             type: e.subagentType || 'general-purpose',
             description: e.description ?? '',
             model: out.model,
+            flow: e.workflow?.runId || all[id]?.flow,
           }),
         }))
+        const runId = e.workflow?.runId
+        if (runId)
+          await update($, flowsState, all =>
+            all[runId]
+              ? { ...all, [runId]: { ...all[runId], activeAt: now } }
+              : { ...all, [runId]: { runId, name: 'fluxo de trabalho', startedAt: now, activeAt: now } },
+          )
         startTicker($)
       } catch {}
     return out
@@ -906,7 +957,7 @@ export const register: Register = on => {
           cacheWrite: t.cacheWrite + usage.cache_creation_input_tokens,
         }
       }
-      return { ...all, [id]: { ...run, steps: run.steps + 1, byModel, model: usage?.model ?? run.model, effort: typeof e.effort === 'string' ? e.effort : run.effort } }
+      return { ...all, [id]: { ...run, activeAt: now, steps: run.steps + 1, byModel, model: usage?.model ?? run.model, effort: typeof e.effort === 'string' ? e.effort : run.effort } }
     })
     void publishOwn($)
     return out
@@ -949,6 +1000,21 @@ export const register: Register = on => {
         })
       if (bgId) startTicker($)
     } catch {}
+    if (e.tool === 'Workflow' && 'result' in out && out.result && !out.isError)
+      try {
+        const r = out.result as { runId?: string; taskId?: string; workflowName?: string }
+        const runId = r.runId
+        if (runId) {
+          const now = await $.clock.now()
+          const name = r.workflowName || flowName(e)
+          await update($, flowsState, all => ({
+            ...all,
+            // Retomar o mesmo runId reabre o card, sem perder quando começou.
+            [runId]: { runId, name, taskId: r.taskId, startedAt: e.resumeFromRunId ? now : (all[runId]?.startedAt ?? now), activeAt: now },
+          }))
+          startTicker($)
+        }
+      } catch {}
     if (e.tool === 'Bash' && /\bgh\s+pr\b|\bgit\s+push\b/.test(e.command)) {
       const text = 'result' in out && out.result ? JSON.stringify(out.result) : ''
       void refreshPr($, true, prUrls(text)).catch(() => {})
@@ -972,6 +1038,7 @@ export const register: Register = on => {
           ...all,
           [id]: {
             ...run,
+            activeAt: now,
             tools: run.tools + 1,
             added: run.added + (d?.added ?? 0),
             removed: run.removed + (d?.removed ?? 0),
@@ -1001,6 +1068,11 @@ export const register: Register = on => {
         const n = taskNotice(e.text)
         const now = await $.clock.now()
         if (n) await update($, activity, a => ({ ...a, bg: endBg(a.bg, n.id, now, n.status) }))
+        if (n)
+          await update($, flowsState, all => {
+            const f = Object.values(all).find(x => x.taskId === n.id)
+            return f ? { ...all, [f.runId]: { ...f, endedAt: now, status: n.status } } : all
+          })
       } catch {}
     return next(e)
   })
@@ -1009,7 +1081,7 @@ export const register: Register = on => {
   on('classic.Stop', async ($, e, next) => {
     try {
       const now = await $.clock.now()
-      const inFlight = (e.background_tasks ?? []).filter(t => t.type !== 'subagent')
+      const inFlight = (e.background_tasks ?? []).filter(t => t.type !== 'subagent' && t.type !== 'workflow')
       await update($, activity, a => {
         const alive = new Set(inFlight.map(t => t.id))
         let bg = { ...a.bg }
@@ -1055,11 +1127,13 @@ export const register: Register = on => {
     const ledger = usage.cost?.usd
 
     const rows = Object.values(all)
+    const flowsNow = await read($, flowsState)
     const devs: Item[] = (await allGemini($, now, await read($, launches))).map(g => ({ kind: 'dev', run: g.run, state: g.state }))
     const subs: Item[] = rows
       .filter(r => !r.external && r.id !== MAIN && !isWrapper(r))
       .map(r => {
         // Fora da lista do motor há mais de 1 min: já acabou, mesmo que o aviso de fim tenha se perdido.
+        if (r.flow && flowsNow[r.flow]) return { kind: 'sub', run: r, state: flowAgentState(r, flowsNow[r.flow], now) }
         const gone = r.endedAt === undefined && !live.has(r.id) && now - r.startedAt > 60_000
         const status = live.get(r.id)?.status ?? (r.endedAt || gone ? 'completed' : 'running')
         const state: GeminiState = status === 'completed' ? 'completed' : status === 'failed' || status === 'killed' ? 'failed' : 'running'
@@ -1072,7 +1146,17 @@ export const register: Register = on => {
       state: b.endedAt === undefined ? 'running' : b.status === 'completed' ? 'completed' : 'failed',
     }))
     const mainBusy = act.turnAt !== undefined || act.tool !== undefined
-    const items = [...devs, ...subs, ...bgs]
+    // Agentes de um fluxo de trabalho ficam dentro do card do fluxo, como no app.
+    const flows = flowsNow
+    const openFlows = await read($, openFlowsState)
+    const loose = subs.filter(i => !i.run.flow || !flows[i.run.flow])
+    const flowItems: Item[] = Object.values(flows).map(f => {
+      const agents = subs.filter(i => i.run.flow === f.runId).sort((a, b) => a.run.startedAt - b.run.startedAt)
+      const { lastEnd, state } = flowSnapshot(f, rows.filter(r => !isWrapper(r)), now)
+      const endedAt = state === 'running' ? undefined : (f.endedAt ?? lastEnd)
+      return { kind: 'flow', run: newRun(f.runId, f.startedAt, { type: 'workflow', description: f.name, endedAt }), state, flow: f, agents }
+    })
+    const items = [...devs, ...loose, ...flowItems, ...bgs]
 
     const running = items.filter(i => i.state === 'running').sort((a, b) => b.run.startedAt - a.run.startedAt)
     const finished = items.filter(i => i.state !== 'running').sort((a, b) => (b.run.endedAt ?? 0) - (a.run.endedAt ?? 0))
@@ -1245,6 +1329,63 @@ export const register: Register = on => {
         </Box>
       )
     }
+
+    /** Card de um fluxo de trabalho: nome, tempo, agentes e bolinhas de progresso; abre a lista dos agentes. */
+    const FlowRow = (g: Item) => {
+      const f = g.flow
+      if (!f) return ItemRow(g)
+      const agents = g.agents ?? []
+      const isOpen = openFlows[f.runId] ?? g.state === 'running'
+      const toggle = () => void update($, openFlowsState, o => ({ ...o, [f.runId]: !isOpen })).catch(() => {})
+      const elapsed = dur((g.run.endedAt ?? now) - g.run.startedAt)
+      const word = g.state === 'running' ? undefined : g.state === 'completed' ? 'pronto' : 'falhou'
+      const done = agents.filter(a => a.state !== 'running').length
+      const tokens = agents.reduce((s, a) => s + totalTokens(a.run), 0)
+      const money = agents.reduce((s, a) => s + costOf(a.run).usd, 0)
+      const details = join(
+        `${agents.length} ${agents.length === 1 ? 'agente' : 'agentes'}`,
+        g.state === 'running' && agents.length > 0 ? `${done} prontos` : undefined,
+        tokens > 0 ? `${kTok(tokens)} tokens` : undefined,
+        tokens > 0 ? usd(money) : undefined,
+      )
+      const DOTS = 40
+      return (
+        <Box key={`fluxo:${f.runId}`} flexDirection="column">
+          <Box justifyContent="space-between" alignItems="center" gap="sm">
+            <Box alignItems="center" gap="xs" flexShrink={1} flexGrow={1} minWidth={0}>
+              <Text size="caption" color={dot(g.state)}>
+                ◆
+              </Text>
+              <Button key={`fluxo-abrir:${f.runId}`} plain label={`${f.name} ${isOpen ? '▾' : '▸'}`} onPress={toggle} />
+            </Box>
+            <Box flexShrink={0}>
+              <Text size="footnote" dimColor tabular>
+                {word ? `${word} · ${elapsed}` : elapsed}
+              </Text>
+            </Box>
+          </Box>
+          <Box paddingLeft={2} flexDirection="column">
+            {Note(`Fluxo de trabalho · ${details}`)}
+            {agents.length > 0 && (
+              <Text size="caption" wrap="truncate">
+                {agents.slice(0, DOTS).map((a, i) => (
+                  <Text key={`fluxo-ponto:${f.runId}:${i}`} color={dot(a.state)}>
+                    ●
+                  </Text>
+                ))}
+                {agents.length > DOTS ? <Text dimColor>{` +${agents.length - DOTS}`}</Text> : null}
+              </Text>
+            )}
+            {isOpen && agents.length > 0 && (
+              <Box flexDirection="column" gap="xs" marginTop="xs">
+                {agents.map(ItemRow)}
+              </Box>
+            )}
+          </Box>
+        </Box>
+      )
+    }
+    const TaskRow = (g: Item) => (g.kind === 'flow' ? FlowRow(g) : ItemRow(g))
 
     const modelLabel = priceOf(main.model || Object.keys(main.byModel)[0] || '')?.label ?? (main.model || 'Claude')
     const working = running.length > 0 || mainBusy
@@ -1444,9 +1585,9 @@ export const register: Register = on => {
         <Box flexDirection="column" gap="xs">
           {Head('Subagentes e tarefas', running.length > 0 ? `${running.length} rodando` : items.length > 0 ? `${items.length}` : undefined)}
           {items.length === 0 && Note('Nenhum subagente, tarefa em segundo plano ou do Gemini ainda.')}
-          {running.map(ItemRow)}
+          {running.map(TaskRow)}
           {finished.length > 0 && running.length > 0 && <Box marginTop="xs">{Note('Terminadas')}</Box>}
-          {finished.slice(0, DONE_SHOWN).map(ItemRow)}
+          {finished.slice(0, DONE_SHOWN).map(TaskRow)}
           {finished.length > DONE_SHOWN && Note(`e mais ${finished.length - DONE_SHOWN} anteriores`)}
         </Box>
 

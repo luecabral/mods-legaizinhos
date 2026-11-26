@@ -1,6 +1,6 @@
 import { expect, test } from 'claude-code/testing'
 
-import { awayPrompt, parsePr, prStatus, prUrls, prTransitions, reflogBranches, parseNumstat, parseWc, bar, toolLabel, taskNotice, endBg, pruneBg, reapBg, shellAlive, BG_SILENT_MS, barColor, withMerged, costOf, diffOf, effortLabel, limitLabel, mainFromLedger, resetText, thousands, geminiCall, mergeFlow, parseFlow, parseStatus, etimeSeconds, isWrapper, recentTasks, stateOf, titleOf } from './register'
+import { awayPrompt, parsePr, prStatus, prUrls, prTransitions, reflogBranches, parseNumstat, parseWc, bar, toolLabel, taskNotice, endBg, pruneBg, reapBg, shellAlive, BG_SILENT_MS, barColor, withMerged, costOf, diffOf, effortLabel, limitLabel, mainFromLedger, resetText, thousands, geminiCall, mergeFlow, parseFlow, parseStatus, etimeSeconds, isWrapper, recentTasks, stateOf, titleOf, flowName, flowState, FLOW_QUIET_MS, flowAgentState, flowSnapshot } from './register'
 import type { Run } from '../types'
 
 const run = (over: Partial<Run> = {}): Run => ({
@@ -273,4 +273,42 @@ test('o botão Longe do computador pede as duas ferramentas certas', () => {
   expect(awayPrompt(true)).toContain('set_remote_control')
   expect(awayPrompt(true)).toContain('request_keep_awake')
   expect(awayPrompt(false)).toContain('enabled false')
+})
+
+test('nome do fluxo vem do meta.name, do nome salvo ou do arquivo', () => {
+  expect(flowName({ script: "export const meta = {\n  name: 'revisar-pr',\n  description: 'x' }" })).toBe('revisar-pr')
+  expect(flowName({ name: 'revisar' })).toBe('revisar')
+  expect(flowName({ scriptPath: '/tmp/s/meu-fluxo.js' })).toBe('meu-fluxo')
+  expect(flowName({})).toBe('fluxo de trabalho')
+})
+
+test('estado do fluxo segue os agentes e o aviso de fim', () => {
+  const f = { runId: 'wf_1', name: 'x', startedAt: 0 }
+  const now = 1_000_000
+  expect(flowState(f, ['completed', 'running'], 0, now)).toBe('running')
+  // entre fases, com tudo pronto há pouco, ainda roda
+  expect(flowState(f, ['completed'], now - 60_000, now)).toBe('running')
+  // parado há mais de 15 min sem aviso de fim: acabou
+  expect(flowState(f, ['completed'], now - FLOW_QUIET_MS - 1, now)).toBe('completed')
+  expect(flowState({ ...f, endedAt: now, status: 'completed' }, ['completed', 'failed'], 0, now)).toBe('completed')
+  expect(flowState({ ...f, endedAt: now, status: 'killed' }, ['completed'], 0, now)).toBe('failed')
+})
+
+test('agente de fluxo segue rodando sem estar na lista do motor', () => {
+  const f = { runId: 'wf_1', name: 'x', startedAt: 0 }
+  const now = 10 * 60 * 1000
+  // 10 min rodando, com sinal há 1 min: ainda roda (antes virava pronto em 60 s)
+  expect(flowAgentState(run({ id: 'a', startedAt: 0, flow: 'wf_1', activeAt: now - 60_000 }), f, now)).toBe('running')
+  // sem sinal há mais de 15 min: acabou
+  expect(flowAgentState(run({ id: 'a', startedAt: 0, flow: 'wf_1' }), f, FLOW_QUIET_MS + 1)).toBe('completed')
+  // o fluxo acabou: o agente também
+  expect(flowAgentState(run({ id: 'a', startedAt: 0, flow: 'wf_1', activeAt: now }), { ...f, endedAt: now }, now)).toBe('completed')
+})
+
+test('fluxo retomado conta o sinal novo, não o fim antigo dos agentes', () => {
+  const now = 5 * 60 * 60 * 1000
+  const old = run({ id: 'a', startedAt: 0, endedAt: 60_000, flow: 'wf_1' })
+  const resumed = { runId: 'wf_1', name: 'x', startedAt: now, activeAt: now }
+  expect(flowSnapshot(resumed, [old], now + 60_000).state).toBe('running')
+  expect(flowSnapshot({ runId: 'wf_1', name: 'x', startedAt: 0 }, [old], now).state).toBe('completed')
 })
